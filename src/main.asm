@@ -1,9 +1,12 @@
-	extern procedimiento
+	global main
+
+	extern tablero_inicializar
+	extern tablero_imprimir
 
 	section .text
-	global main
 main:
-	call procedimiento
+	call tablero_inicializar
+	call tablero_imprimir
 exit:
 	mov rax,60
 	mov rdi,0

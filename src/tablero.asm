@@ -1,5 +1,5 @@
 	global tablero_inicializar
-	global tablero_imprimir
+	global tablero_renderizar
 
 	extern fopen
 	extern fread
@@ -7,11 +7,14 @@
 
 
 	section .data
+pos_castillo: db "s"
 iconos: times 49 db "X"
 
 newline: db 10,0
-archivo_pathname:  db "./build/tablero.dat",0
+archivo_pathname:  db "./static/tablero-izquierda.dat",0
 archivo_open_mode: db "rb",0
+
+ansi_castillo: db 0x1b,"[38;5;000;48;5;244m %c ",0x1b,"[0m",0
 
 
 	section .bss
@@ -20,13 +23,21 @@ archivo_fd: resq 1
 
 
 	section .text
-tablero_imprimir:
+tablero_inicializar:
 	mov rdi,archivo_pathname
 	mov rsi,archivo_open_mode
 	call fopen
 
 	mov [archivo_fd],rax
 
+	mov al,[pos_castillo]
+
+	cmp al,"w"
+
+	ret
+
+
+tablero_renderizar:
 	mov r12,0
 loop_filas:
 	mov r13,0

@@ -1,4 +1,4 @@
-.PHONY: build run debug tablero help-opcodes
+.PHONY: build run debug compilar-tableros help-opcodes
 
 SRC_DIR=./src
 BUILD_DIR=./build

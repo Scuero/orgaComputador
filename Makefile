@@ -19,6 +19,9 @@ build: $(EJECUTABLE)
 run: $(EJECUTABLE)
 	@./$(EJECUTABLE)
 
+valgrind: $(EJECUTABLE)
+	@valgrind $(EJECUTABLE)
+
 debug: $(EJECUTABLE)
 	@gdb -tui ./$(EJECUTABLE)
 

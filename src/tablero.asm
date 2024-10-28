@@ -1,34 +1,53 @@
+	global __temp_tablero_llenar_fichas
+	global tablero_finalizar
 	global tablero_inicializar
 	global tablero_renderizar
-	global __temp_tablero_llenar_fichas
+	global tablero_seleccionar_celda
 
+	extern fclose
 	extern fopen
 	extern fread
 	extern printf
-
+	extern rewind
+	extern scanf
+	extern fflush
 
 	%define LONGITUD_CELDA_ASCII 29
 	%define CANTIDAD_FILAS 7
 	%define CANTIDAD_COLUMNAS 7
 
+; =============== DATA ===============
 
 	section .data
 pos_castillo:  db "s"
 iconos_fichas: times 49 db "X"
+icono_celda_indicador_vacia: db "   ",0
 
 newline: db 10,0
 archivo_tablero_path:      db "./static/tablero-abajo.dat",0
 archivo_tablero_open_mode: db "rb",0
 
-ansi_castillo: db 0x1b,"[38;5;000;48;5;244m %c ",0x1b,"[0m",0
-ansi_indicador_celda: db 0x1b,"[38;5;046;00000049m %c ",0x1b,"[0m",0
-ansi_celda_indicador_vacia: db "   ",0
+ansi_indicador_celda: db 0x1b,"[38;5;033;00000049m %c ",0x1b,"[0m",0
+ansi_celda_seleccionada: db 0x1b,"[38;5;000;48;5;033m %c ",0x1b,"[0m",0
 
+prompt_seleccion_fila: db "seleccionar fila: ",0
+prompt_seleccion_columna: db "seleccionar columna: ",0
+scanf_int: db "%i",0
+scanf_char: db " %c\n",0
+
+fila_seleccionada: db -1
+columna_seleccionada: db -1
+
+; =============== BSS ===============
 
 	section .bss
-archivo_buffer: resb 29
-archivo_fd: resq 1
+buffer_ansi_celda: resb LONGITUD_CELDA_ASCII
+archivo_tablero_fd: resq 1
 
+scanf_buffer_int: resd 1
+scanf_buffer_char: resb 1
+
+; =============== TABLERO_INICIALIZAR ===============
 
 	section .text
 tablero_inicializar:
@@ -36,7 +55,7 @@ tablero_inicializar:
 	mov rsi,archivo_tablero_open_mode
 	call fopen
 
-	mov [archivo_fd],rax
+	mov [archivo_tablero_fd],rax
 
 	mov al,[pos_castillo]
 
@@ -44,17 +63,8 @@ tablero_inicializar:
 
 	ret
 
+; =============== __TEMP_TABLERO_LLENAR_FICHAS ===============
 
-	; idealmente cada vez que se actualizen las fichas del juego, estas van a
-	; llenar una matriz 7x7 cada una con su propio ícono. Luego el tablero solo
-	; se va a encargar de dibujar estos íconos. esta matriz debería estar
-	; inicializada en espacios en blanco en cada actualización, así solo se
-	; cambian los íconos que las fichas populen.
-	;
-	; por ahora simulamos esta actualización pero al revés: inicializamos todos
-	; los casilleros como si tuvieran fichas con ícono "X" para visualizarlas
-	; fácilmente y quitamos los espacios que debería estar en blanco.
-	;
 __temp_tablero_llenar_fichas:
 	mov byte [iconos_fichas]," "
 	mov byte [iconos_fichas + 1]," "
@@ -76,13 +86,14 @@ __temp_tablero_llenar_fichas:
 
 	ret
 
+; =============== TABLERO_RENDERIZAR ===============
 
 tablero_renderizar:
 	mov r12,0
 
-	; fila de indicadores de columna
-	mov rdi,ansi_celda_indicador_vacia
+	mov rdi,icono_celda_indicador_vacia
 	call printf
+
 loop_indicador_columna:
 	mov r13,r12
 	add r13,"A"
@@ -92,34 +103,31 @@ loop_indicador_columna:
 
 	inc r12
 	cmp r12,CANTIDAD_COLUMNAS
-	jl loop_indicador_columna ; hay una columna extra para el indicador de filas
+	jl loop_indicador_columna
 
-	; terminamos de renderizar la fila de indicadores de columnas
-	;
 	mov rdi,newline
 	call printf
+
 	mov r12,0
 loop_filas:
 	mov r13,0
+
 loop_columnas:
-	; leemos el archivo de celda en celda.
-	;
-	mov rdi,archivo_buffer
+	mov rdi,buffer_ansi_celda
 	mov rsi,LONGITUD_CELDA_ASCII
 	mov rdx,1
-	mov rcx,[archivo_fd]
+	mov rcx,[archivo_tablero_fd]
 	call fread
 
 	cmp rax,0
-	je continue_fin_archivo ; llegamos al fin del archivo
+	je continue_fin_archivo
 
-	; indicador de fila
 	cmp r13,0
-	jne continue_renderizar_celda ; ya está el indicador de la fila
+	jne continue_renderizar_celda
 
 	mov r14,r12
 	add r14,"0"
-	inc r14 ; las filas se numeran desde el 1
+	inc r14
 
 	mov rdi,ansi_indicador_celda
 	mov rsi,r14
@@ -127,15 +135,25 @@ loop_columnas:
 
 continue_renderizar_celda:
 	mov r14,r12
-	imul r14,CANTIDAD_COLUMNAS ; offset de fila actual
+	imul r14,CANTIDAD_COLUMNAS
 
 	movzx rsi,byte [iconos_fichas + r13 + r14]
-	mov rdi,archivo_buffer
+
+	cmp r12b,byte [fila_seleccionada]
+	jne celda_no_seleccionada
+	cmp r13b,byte [columna_seleccionada]
+	jne celda_no_seleccionada
+
+	mov rdi,ansi_celda_seleccionada
+	jmp renderizar_celda
+celda_no_seleccionada:
+	mov rdi,buffer_ansi_celda
+renderizar_celda:
 	call printf
 
 	inc r13
 	cmp r13,CANTIDAD_COLUMNAS
-	jl loop_columnas ; siguiente columnas
+	jl loop_columnas ; siguiente columna
 
 	mov rdi,newline
 	call printf
@@ -144,4 +162,43 @@ continue_renderizar_celda:
 	cmp r12,CANTIDAD_FILAS
 	jl loop_filas ; siguiente fila
 continue_fin_archivo:
+	mov rdi,[archivo_tablero_fd]
+	call rewind
+
+	ret
+
+; =============== TABLERO_SELECCIONAR_CELDA ===============
+
+tablero_seleccionar_celda:
+	mov rdi,prompt_seleccion_fila
+	call printf
+
+	mov rdi,scanf_int
+	mov rsi,scanf_buffer_int
+	call scanf
+
+	mov r12d,[scanf_buffer_int]
+
+	mov rdi,prompt_seleccion_columna
+	call printf
+
+	mov rdi,scanf_char
+	mov rsi,scanf_buffer_char
+	call scanf
+
+	mov r13b,[scanf_buffer_char]
+
+	sub r12d,1
+	sub r13b,"A"
+
+	mov [fila_seleccionada],r12d
+	mov [columna_seleccionada],r13b
+
+	ret
+
+; =============== TABLERO_FINALIZAR ===============
+
+tablero_finalizar:
+	mov rdi,[archivo_tablero_fd]
+	call fclose
 	ret

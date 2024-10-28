@@ -1,20 +1,22 @@
 	global main
 
+	extern __temp_tablero_llenar_fichas
+	extern tablero_finalizar
 	extern tablero_inicializar
 	extern tablero_renderizar
-	extern __temp_tablero_llenar_fichas
+	extern tablero_seleccionar_celda
 
 	section .text
 main:
 	call tablero_inicializar
 
-	; función temporal mientras no tenemos implementada la lógica de
-	; actualización de las posiciones del juego en cada turno. sirve para
-	; mostrar algo en pantalla.
-	;
 	call __temp_tablero_llenar_fichas
 
 	call tablero_renderizar
+	call tablero_seleccionar_celda
+	call tablero_renderizar
+
+	call tablero_finalizar
 exit:
 	mov rax,60
 	mov rdi,0

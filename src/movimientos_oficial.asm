@@ -1,4 +1,4 @@
-    global cargar_movimientos_oficial
+      global cargar_movimientos_oficial
     global efectuar_movimiento_oficial
 
     extern array_movimientos_posibles
@@ -6,7 +6,26 @@
 
     %define CANTIDAD_COLUMNAS 7
 
+    section .bss
+        pos_oficial_1 resb 2      ; Reservar 2 bytes para el Oficial 1 (1 byte para fila, 1 byte para columna)
+        pos_oficial_2 resb 2      ; Reservar 2 bytes para el Oficial 2 (1 byte para fila, 1 byte para columna)
+        movimientos_oficial1 resb 1 ; Contador de movimientos para el Oficial 1
+        movimientos_oficial2 resb 1 ; Contador de movimientos para el Oficial 2
+        capturas_oficial1 resb 1  ; Contador de capturas para el Oficial 1
+        capturas_oficial2 resb 1  ; Contador de capturas para el Oficial 2
+
+    section .data
+        mensaje_estadisticas db "Estadísticas del juego:", 0
+        mensaje_oficial_1 db "Estadísticas del Oficial 1:", 0
+        mensaje_oficial_2 db "Estadísticas del Oficial 2:", 0
+
     section .text
+        global imprimir_cadena
+        global efectuar_movimiento_oficial
+        global mostrar_estadisticas
+
+
+
 
     ; actualiza el `array_movimientos_posibles` con los índices de las celdas a las
     ; que se puede mover el oficial dado
@@ -497,120 +516,116 @@ cargar_movimientos_oficial:
 
     ret
 
-    ; mueve a un oficial de lugar y captura al soldado que esté en el camino
-    ;
-    ; parámetros:
-    ; - rdi: índice de la celda del oficial a mover
-    ; - rsi: índice de la celda a la que mover el oficial
-    ;
-    ; retorna:
-    ; - rax: 1 si se eliminó al oficial por saltarse su deber de captura, 0 en
-    ;   otro caso.
-    ;
-    ; * ambos parámetros se asumen como ya validados
-    ;
+
+; Función para efectuar el movimiento de un oficial
+; Argumentos: [rdi] = tablero (puntero al tablero), [rsi] = fila_inicial, [rdx] = col_inicial,
+; [rcx] = fila_final, [r8] = col_final
 efectuar_movimiento_oficial:
-    ; primero hacemos el movimiento (sabemos que es válido)
-    mov r8b, [tablero + rdi]
-    mov byte [tablero + rdi], ' '
-    mov byte [tablero + rsi], r8b
 
-    ; verificamos si hicimos un movimiento normal. en este caso las diferencias
-    ; entre la fila nueva y la anterior son menor o igual a 1, y las de la
-    ; columna tambien:
-    ;
-    ; (| fila_anterior - fila_actual | <= 1) AND (| columna_anterior - columna_actual | <= 1)
+    ; Comparar posición inicial con pos_oficial_1
+    mov rax, [pos_oficial_1]              ; Cargar la fila del oficial 1
+    cmp rsi, rax                           ; Comparar fila inicial con fila oficial 1
+    jne .check_oficial_2                   ; Si no es igual, comprobar el oficial 2
+    mov rax, [pos_oficial_1+1]             ; Cargar la columna del oficial 1
+    cmp rdx, rax                           ; Comparar columna inicial con columna oficial 1
+    jne .check_oficial_2                   ; Si no es igual, comprobar el oficial 2
 
-    ; para volver a usarlos luego
-    push rdi
-    push rsi
-
-    mov rax, rdi
-    mov rcx, CANTIDAD_COLUMNAS
-    xor rdx, rdx
-
-    div rcx ; rax = fila_anterior, rdx = columna_anterior
-
-    mov r8, rax ; fila_anterior
-    mov r9, rdx ; columna_anterior
-
-    mov rax, rsi
-    mov rcx, CANTIDAD_COLUMNAS
-    xor rdx, rdx
-
-    div rcx ; rax = fila_nueva, rdx = columna_nueva
-
-    mov r10, rax ; fila_nueva
-    mov r11, rdx ; columna_nueva
-
-    mov rdi, r8
-    mov rsi, r9
-    mov rdx, r10
-    mov rcx, r11
-
-    call calcular_distancia_entre_celdas
-
-    mov r8, rax ; distancia filas (valor absoluto)
-    mov r9, rbx ; distancia columnas (valor absoluto)
-
-    pop rsi ; recupero el índice de la celda anterior
-    pop rdi ; y el de la celda a la que me moví
-
+    ; Comprobar si la nueva posición está dentro de los límites del tablero (1-7)
+    cmp rcx, 1
+    jl .finalizar                           ; Si fila final < 1, finalizar
+    cmp rcx, 7
+    jg .finalizar                           ; Si fila final > 7, finalizar
     cmp r8, 1
-    jg .efectuar_captura
+    jl .finalizar                           ; Si columna final < 1, finalizar
+    cmp r8, 7
+    jg .finalizar                           ; Si columna final > 7, finalizar
 
-    cmp r9, 1
-    jg .efectuar_captura
+    ; Actualizar posición del Oficial 1
+    mov [pos_oficial_1], rcx               ; Establecer nueva fila
+    mov [pos_oficial_1+1], r8              ; Establecer nueva columna
 
-    ; si llego acá es porque hicimos un movimiento normal. hay que comprobar que
-    ; no teníamos opciones para hacer un movimiento de captura.
+    ; Lógica para registrar el movimiento del oficial 1
+    inc byte [movimientos_oficial1]        ; Incrementar el contador de movimientos del oficial 1
 
-    mov rax, 0 ; para retornarlo luego
-    mov rcx, 0
+    ; Comprobar si hubo captura
+    mov rax, rcx
+    imul rax, rax, 7                       ; Multiplicar por el número de columnas (7)
+    add rax, r8
+    mov rbx, [rdi + rax]                   ; Cargar el valor de la celda destino
+    cmp rbx, 'X'
+    jne .no_captura                        ; Si no hay captura
 
-    .loop_validacion_sin_captura_disp:
-    mov bl, byte [array_movimientos_posibles + rcx]
-    cmp bl, 0
-    je .finalizar ; no había movimientos de captura disponibles
-
-    ; si tenía un movimiento que me movía 14 celdas (2 filas hacia arriba o 2
-    ; hacia abajo) o 2 celdas (2 izquierda o 2 derecha), entonces significa que
-    ; tenía un movimiento de captura.
-    ;
-    sub bl, dl
-    test bl, bl
-    jge .distancia_absoluta_celdas
-    neg al
-
-    .distancia_absoluta_celdas:
-    cmp bl, 14
-    je .habia_mov_captura_disp
-    cmp bl, 2
-    je .habia_mov_captura_disp
-
-    inc rcx
-    jmp .loop_validacion_sin_captura_disp
-
-    ; no había movimientos de captura disponibles
+    inc byte [capturas_oficial1]           ; Incrementar contador de capturas del oficial 1
     jmp .finalizar
 
-    .habia_mov_captura_disp:
-    ; en este caso eliminamos al oficial del tablero (ya lo habíamos movido)
-    mov byte [tablero + rsi], ' '
-    mov rax, 1
-    jmp .finalizar
+.check_oficial_2:
+    ; Comparar posición inicial con pos_oficial_2
+    mov rax, [pos_oficial_2]              ; Cargar la fila del oficial 2
+    cmp rsi, rax                           ; Comparar fila inicial con fila oficial 2
+    jne .finalizar                         ; Si no es oficial 2, terminar
+    mov rax, [pos_oficial_2+1]             ; Cargar la columna del oficial 2
+    cmp rdx, rax                           ; Comparar columna inicial con columna oficial 2
+    jne .finalizar                         ; Si no es oficial 2, terminar
 
-    .efectuar_captura:
-    mov rbx, rsi
-    sub rbx, rdi ; celda anterior
-    sar rbx, 1 ; dividimos entre 2 para encontrar la celda sobre la que saltamos
+    ; Actualizar posición del Oficial 2
+    mov [pos_oficial_2], rcx               ; Establecer nueva fila
+    mov [pos_oficial_2+1], r8              ; Establecer nueva columna
 
-    add rdi, rbx ; offset
-    mov byte [tablero + rdi], ' '
+    ; Lógica para registrar el movimiento del oficial 2
+    inc byte [movimientos_oficial2]        ; Incrementar el contador de movimientos del oficial 2
 
-    .finalizar:
+    ; Comprobar si hubo captura
+    mov rax, rcx
+    imul rax, rax, 7                       ; Multiplicar por el número de columnas (7)
+    add rax, r8
+    mov rbx, [rdi + rax]                   ; Cargar el valor de la celda destino
+    cmp rbx, 'X'
+    jne .no_captura_2                      ; Si no hay captura
+
+    inc byte [capturas_oficial2]           ; Incrementar contador de capturas del oficial 2
+
+.no_captura:
+.no_captura_2:
+.finalizar:
+    ret
+
+
+; Función para mostrar estadísticas
+mostrar_estadisticas:
+    ; Mostrar mensaje "Estadísticas del juego:"
+    mov rdi, mensaje_estadisticas
+    call imprimir_cadena
+
+    ; Mostrar estadísticas del Oficial 1
+    mov rdi, mensaje_oficial_1
+    call imprimir_cadena
+    ; Aquí imprimiríamos el número de movimientos y capturas para Oficial 1
+    ; Imprimir "Movimientos: X, Capturas: Y" para Oficial 1
+    mov rdi, movimientos_oficial1
+    call imprimir_cadena
+
+    ; Mostrar estadísticas del Oficial 2
+    mov rdi, mensaje_oficial_2
+    call imprimir_cadena
+    ; Aquí imprimiríamos el número de movimientos y capturas para Oficial 2
+    ; Imprimir "Movimientos: X, Capturas: Y" para Oficial 2
+    mov rdi, movimientos_oficial2
+    call imprimir_cadena
 
     ret
+
+; Función para imprimir una cadena
+imprimir_cadena:
+    ; rdi = puntero a la cadena (argumento de la función)
+    ; Usamos la syscall para escribir en la salida estándar (stdout)
+    mov rax, 0x1         
+    mov rdi, 0x1         
+    mov rsi, rdi          ; rsi = puntero a la cadena
+    mov rdx, 100          ; longitud de la cadena 
+    syscall
+    ret
+
+
 
     ; parámetros:
     ; - rdi: número de fila anterior
